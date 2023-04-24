@@ -3,6 +3,7 @@ package hole
 import (
 	"fmt"
 	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/plugin/dbresolver"
@@ -540,7 +541,8 @@ func DeleteHole(c *fiber.Ctx) error {
 	}
 
 	var hole Hole
-	hole.ID = holeID
+	err = DB.Take(&hole, holeID).Error
+
 	result := DB.Where("hole_id = ? ", holeID).Delete(&hole)
 	if result.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
@@ -550,13 +552,18 @@ func DeleteHole(c *fiber.Ctx) error {
 
 	err = utils.DeleteCache(hole.CacheName())
 	if err != nil {
-		return err
+		Logger.Error("DeleteHole", zap.Error(err))
 	}
 
 	// delete floors from Elasticsearch
 	var floors Floors
 	_ = DB.Where("hole_id = ?", hole.ID).Find(&floors)
 	go BulkDelete(Models2IDSlice(floors))
+
+	err = DeleteCache("divisions")
+	if err != nil {
+		Logger.Error("DeleteHole: delete", zap.Error(err))
+	}
 
 	return c.Status(204).JSON(nil)
 }
